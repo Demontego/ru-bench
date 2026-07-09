@@ -12,3 +12,4 @@ wheels/
 # Benchmark data and results
 /data/
 /results/
+/checkpoints/

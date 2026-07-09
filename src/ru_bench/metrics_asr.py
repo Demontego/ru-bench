@@ -6,18 +6,18 @@ from ru_bench import config
 from ru_bench.data import ClipRef, load_manifest
 
 
-def load_hypothesis(clip: ClipRef) -> str:
-    path = config.ASR_RESULTS_DIR / f"{clip.clip_id}.json"
+def load_hypothesis(clip: ClipRef, results_dir=config.ASR_RESULTS_DIR) -> str:
+    path = results_dir / f"{clip.clip_id}.json"
     with open(path, encoding="utf-8") as f:
         return json.load(f)["merged_text"]
 
 
-def compute_asr_metrics(clips: list[ClipRef] | None = None) -> dict:
+def compute_asr_metrics(clips: list[ClipRef] | None = None, results_dir=config.ASR_RESULTS_DIR) -> dict:
     clips = clips if clips is not None else load_manifest()
-    clips = [c for c in clips if (config.ASR_RESULTS_DIR / f"{c.clip_id}.json").exists()]
+    clips = [c for c in clips if (results_dir / f"{c.clip_id}.json").exists()]
 
     refs = [c.text for c in clips]
-    hyps = [load_hypothesis(c) for c in clips]
+    hyps = [load_hypothesis(c, results_dir) for c in clips]
 
     per_clip = []
     for clip, ref, hyp in zip(clips, refs, hyps):

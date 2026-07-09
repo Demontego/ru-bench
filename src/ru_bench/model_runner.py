@@ -10,15 +10,16 @@ from transformers import AutoModelForCausalLM, AutoProcessor
 MODEL_ID = "OpenMOSS-Team/MOSS-Transcribe-Diarize"
 
 
-def load_model():
-    device = resolve_device("auto")
+def load_model(adapter_path: str | None = None, device: torch.device | None = None):
+    device = device or resolve_device("auto")
     dtype = torch.bfloat16 if device.type == "cuda" else torch.float32
-    model = (
-        AutoModelForCausalLM.from_pretrained(MODEL_ID, trust_remote_code=True, dtype="auto")
-        .to(dtype=dtype)
-        .to(device)
-        .eval()
-    )
+    model = AutoModelForCausalLM.from_pretrained(MODEL_ID, trust_remote_code=True, dtype="auto")
+    if adapter_path is not None:
+        from peft import PeftModel
+
+        model = PeftModel.from_pretrained(model, adapter_path)
+        model = model.merge_and_unload()
+    model = model.to(dtype=dtype).to(device).eval()
     processor = AutoProcessor.from_pretrained(MODEL_ID, trust_remote_code=True)
     return model, processor, device, dtype
 

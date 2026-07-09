@@ -8,6 +8,7 @@ dependencies = [
     "moss-transcribe-diarize[torch-runtime]",
     "jiwer>=4.0",
     "soundfile>=0.14",
+    "peft>=0.18",
 ]
 
 [tool.uv.sources]

@@ -15,6 +15,8 @@ class ClipRef:
     audio_path: str
     text: str
     duration: float
+    # Compact MOSS transcript ``[t0][Sxx]text[t1]...``. None → flat single-speaker wrap.
+    target: str | None = None
 
 
 def download_golos_test_tar(dest: Path = config.GOLOS_TAR_PATH) -> Path:
@@ -76,6 +78,9 @@ def save_manifest(clips: list[ClipRef], path: Path = config.ASR_MANIFEST_PATH) -
 
 
 def load_manifest(path: Path = config.ASR_MANIFEST_PATH) -> list[ClipRef]:
+    from dataclasses import fields
+
     with open(path, encoding="utf-8") as f:
         rows = json.load(f)
-    return [ClipRef(**row) for row in rows]
+    allowed = {f.name for f in fields(ClipRef)}
+    return [ClipRef(**{k: v for k, v in row.items() if k in allowed}) for row in rows]

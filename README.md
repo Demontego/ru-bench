@@ -81,17 +81,64 @@ skipping its FFN). See `src/ru_bench/lora_setup.py` for the exact target modules
   numerically clean. Use CPU only for tiny mechanics-validation runs, not real training.)
 - `peft` (installed via `uv sync`, already in `pyproject.toml`).
 
-### Usage
+### Train data (multi-source)
+
+`05_download_train_data.py` builds `data/manifests/train_sample.json` /
+`data/manifests/dev_sample.json` from:
+
+| Source | How | Notes |
+|--------|-----|--------|
+| `golos_farfield` | Sber CDN audio (~15.4GB) + `train_crowd9.tar` (~8GB) for manifests | farfield tar has wavs only |
+| `golos10h` | HF `bond005/sberdevices_golos_10h_crowd` | avoid empty `SberDevices/Golos` |
+| `fleurs_ru` / `fleurs_en` | HF `google/fleurs` | EN = modest retention, not train 50/50 |
+| `synth_diar_ru` | HF `ivkond/synthetic-speech-diarization-ru` | multi-speaker + timestamps (format retention) |
+| `cv_ru` | HF Common Voice 17 | often empty/gated on Hub — soft-skip |
+| `librispeech_clean` | HF optional EN | pass explicitly; not in default mix |
+
+**Format retention:** plain Golos/FLEURS labels are flat
+`[0.00][S01]text[dur]` — that alone makes LoRA forget mid-timestamps / `[S02]`.
+`synth_diar_ru` stores real multi-turn MOSS targets on `ClipRef.target`. Rebuild
+manifests with `--sources mixed` (includes `synth_diar_ru`) before retraining.
+
+**Loss:** token-weighted CE only — speakers ×4, timestamps ×2, text ×1;
+flat Golos wrap ×0.4. Mid-train generate metrics: **CER / cpCER / Δcp**.
+
+**Split policy:** eval = **10%** of pool, prefer **~50/50 RU/EN** (fair bilingual
+metrics). Train = **all remaining** — RU-heavy is intended (primary = Russian);
+modest EN share (~10–30% if available) keeps English retention. No huge EN
+download just to balance train. Caps: `config.SOURCE_LIMITS`.
 
 ```bash
-# 1. Download Golos's train split (farfield domain, ~15.4GB, self-contained manifest)
+# Mixed default (farfield + golos10h + FLEURS RU/EN). Farfield alone ~15GB disk.
+uv run python scripts/05_download_train_data.py --sources mixed
+
+# HF-only (no 15GB farfield) — good for smoke / first train
+uv run python scripts/05_download_train_data.py --sources hf --n-train 2000 --n-dev 150
+
+# Legacy Golos-only
 uv run python scripts/05_download_train_data.py --domain farfield
+```
 
-# 2. Fine-tune (defaults: 1000 steps, batch-accum 8, lr 1e-4)
-uv run python scripts/06_finetune.py --device cuda --steps 1000 --batch-accum 8
+Disk ballpark: farfield tar 15GB + extract; golos10h+FLEURS wavs a few GB depending on limits in `config.SOURCE_LIMITS`.
 
-# 3. Evaluate the fine-tuned checkpoint on the same 100-clip test set used for the baseline,
-#    and print both numbers side by side
+### RTX 3090 batch (24GB)
+
+LoRA recipe: Whisper r=32 + Qwen r=8 + full `vq_adaptor`, bf16 autocast.
+VRAM probe (`scripts/08_vram_probe.py`) on longest ~13s clips:
+
+- `batch_size=4` → peak ~14GB — **safe**
+- `batch_size=8` → peak ~26GB — **unsafe** on 24GB
+
+Recommended: **`--batch-size 4 --batch-accum 4` → eff=16**.
+
+```bash
+# Re-probe if recipe/clip length changes
+uv run python scripts/08_vram_probe.py --manifest data/manifests/asr_sample.json
+
+# 2. Fine-tune (defaults: batch=4 accum=4 eff=16, 1000 steps, lr 1e-4)
+uv run python scripts/06_finetune.py --device cuda --steps 1000
+
+# 3. Evaluate the fine-tuned checkpoint on the same 100-clip test set used for the baseline
 uv run python scripts/07_eval_finetuned.py --checkpoint-dir checkpoints/lora_ru
 ```
 
@@ -99,23 +146,94 @@ Output: `checkpoints/lora_ru/` (PEFT adapter + `vq_adaptor` weights, saved toget
 `modules_to_save`), `results/asr_finetuned/` and `results/metrics_asr_finetuned.json` (parallel to
 the baseline results, so neither overwrites the other).
 
-For a quick mechanics-only smoke test (not real training — just confirms the pipeline runs),
-point `--train-manifest`/`--dev-manifest` at the existing `data/manifests/asr_sample.json` and use
-`--limit`/`--steps`/`--batch-accum` to keep it tiny, e.g.:
+CUDA smoke (not full train):
 
 ```bash
-uv run python scripts/06_finetune.py --train-manifest data/manifests/asr_sample.json \
-  --dev-manifest "" --limit 2 --steps 2 --batch-accum 1 --device cpu \
-  --checkpoint-dir checkpoints/smoke_test
+uv run python scripts/06_finetune.py --train-manifest data/manifests/train_sample.json \
+  --dev-manifest none --limit 16 --steps 4 --batch-size 4 --batch-accum 1 \
+  --device cuda --checkpoint-dir checkpoints/smoke_3090
 ```
 
 ### Known open item
 
-`train_data.py`'s `--domain crowd` path is unverified: Golos's crowd train shards may only bundle
-the full manifest inside `train_crowd9.tar` rather than each shard being self-contained like
-`farfield`/`test` are. The code raises a clear error (rather than silently doing the wrong thing)
-if no manifest is found in a downloaded shard. `--domain farfield` (the default) sidesteps this
-entirely.
+`train_data.py`'s `--domain crowd` / `--sources golos_crowd` path is unverified: Golos's crowd
+train shards may only bundle the full manifest inside `train_crowd9.tar` rather than each shard
+being self-contained like `farfield`/`test` are. The code raises a clear error if no manifest is
+found. Prefer `golos_farfield` + HF `golos10h` instead of CDN crowd shards.
+
+## ONNX export + onnxruntime
+
+Exports a **one-step** graph (prompt+audio → last-token logits), then:
+
+1. [ORT transformers optimizer](https://onnxruntime.ai/docs/performance/transformers-optimization.html)
+   (`model_type=gpt2`, Qwen heads=16 / hidden=1024, **`opt_level=0`**) → `*.opt.onnx`
+2. [onnxruntime-extensions](https://onnxruntime.ai/docs/extensions/) —
+   register custom ops + `pp_api.Tokenizer` for Qwen vocab
+   (`HfJsonTokenizer` ONNX op **cannot** parse Qwen2 `tokenizer.json`)
+
+Greedy decode loop in Python. No KV-cache — demo speed.
+
+```bash
+uv sync --extra onnx
+
+# Merge LoRA + export + optimize + Extensions tokenizer check (~4GB weights)
+uv run python scripts/12_export_onnx.py \
+  --checkpoint-dir checkpoints/lora_ru_e2 \
+  --output exports/moss_ru_e2_step.onnx
+
+# Optional GPU FP16 optimize:
+#   ... --float16 --use-gpu
+
+# Weight-only MatMulNBits (Q4 / INT8) — size-first, GPU/CPU
+uv run python scripts/13_quantize_onnx.py --method nbits --bits 4
+uv run python scripts/13_quantize_onnx.py --method nbits --bits 8
+
+# CPU dynamic INT8 (activations runtime-quantized; best for CPUExecutionProvider)
+uv run python scripts/13_quantize_onnx.py --method dynamic --exclude-lm-head
+
+# Split KV export (audio once + embed + lm_prefill + lm_decode) — preferred for CPU/GPU speed
+uv run python scripts/14_export_onnx_kv.py \
+  --checkpoint-dir checkpoints/lora_ru_fmt3 \
+  --output-dir exports/moss_ru_fmt3_kv \
+  --sample-audio Звонок.wav
+
+# CPU runtime: use onnxruntime (not onnxruntime-gpu) for best CPU EP
+#   uv remove onnxruntime-gpu --optional onnx
+#   uv sync --extra onnx-cpu
+
+uv run python examples/onnxruntime_infer_kv.py \
+  --model-dir exports/moss_ru_fmt3_kv \
+  --audio Звонок.wav \
+  --quant cpu-fast \
+  --providers CPUExecutionProvider \
+  --tune-threads
+
+# Token budgets (train+dev): ~10s → 128, ~30s → 384; or auto from duration
+#   --chunk-sec 10 | --chunk-sec 30 | omit both for duration formula
+
+# Infer (Extensions custom ops + prefer *.opt.onnx)
+uv run python examples/onnxruntime_infer.py \
+  --onnx exports/moss_ru_e2_step.opt.onnx \
+  --audio data/raw/golos/test/farfield/files/<clip>.wav \
+  --max-new-tokens 128
+```
+
+Artifacts:
+- `exports/moss_ru_e2_step.onnx` (+ `.data`)
+- `exports/moss_ru_e2_step.opt.onnx` (+ `.data`) — fused (`opt_level=0`)
+- `exports/*.opt.q4.onnx` / `*.opt.q8.onnx` — weight-only MatMulNBits
+- `exports/moss_ru_fmt3_kv/` — **preferred**: `audio` + `embed` + `lm_prefill` + `lm_decode` (KV-cache)
+- `exports/extensions_tokenizer.json` — pp_api.Tokenizer metadata
+- `exports/processor/` — HF processor (mel) + tokenizer for Extensions
+
+Caveats:
+- Mel still HF feature extractor; text tokenize demo via Extensions `pp_api`.
+- `onnxruntime-extensions==0.15.0` pinned (0.15.2 has no Windows cp312 wheel).
+- Single-chunk / batch=1.
+- Monolithic one-step graph has no KV-cache (slow on CPU). Use `14_export_onnx_kv.py`.
+- Default optimizer ``opt_level=0``. ``opt_level>=1`` invalidates hybrid Whisper+Qwen.
+- Q4/INT8 is weight-only; A/B on real audio — generative ASR can degrade on timestamps/speakers.
+- KV export duplicates LM weights in prefill+decode (~2× LM disk); audio/embed shared.
 
 ## Assumptions and caveats
 

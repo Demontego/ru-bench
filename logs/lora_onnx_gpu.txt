@@ -1,0 +1,9 @@
+﻿Skip loading CUDA and cuDNN DLLs since torch is imported.
+extensions: C:\Users\Demontego\Projects\ru-bench\.venv\Lib\site-packages\onnxruntime_extensions\_extensions_pydll.cp312-win_amd64.pyd
+providers: ['CUDAExecutionProvider', 'CPUExecutionProvider']
+inputs: [('input_ids', ['batch', 'seq']), ('attention_mask', ['batch', 'seq']), ('input_features', ['batch', 80, 3000]), ('audio_feature_lengths', ['batch'])]
+extensions pp_api.Tokenizer demo ids=[124436, 26991, 8178, 137144]
+--- raw ---
+[0.00][S01]╨░╨╗╨╗╨╛ ╨╖╨┤╤А╨░╨▓╤Б╤В╨▓╤Г╨╣╤В╨╡ ╨┐╨╛╨┤ ╨┤╨╕╨▓╨░╨╜ ╨╡╤Й╨╡ ╨┐╤А╨╛╨┤╨░╨╡╤В╤Б╤П ╨┤╨░ ╨╝╨╛╨╢╨╡╤В╨╡ ╨┐╨╛╨┤╤К╨╡╤Е╨░╤В╤М ╤З╨╡╤А╨╡╨╖ ╤З╨░╤Б ╨░╨│╨░ ╤Б╨╡╨╣╤З╨░╤Б ╨▒╤Г╨┤╨╡╤В ╤В╨╛╨│╨┤╨░ ╨┐╨╛╨┤╨╛╨╢╨┤╨╕╤В╨╡ ╤В╨╛╨╗╤М╨║╨╛ ╤Г ╨╝╨╡╨╜╤П ╨╡╤Й╨╡ ╨╡╤Б╤В╤М ╤В╨╡╨╗╨╡╨│╤А╨░╨╝ ╨║╨░╨╜╨░╨╗ ╨┤╨╕╨▓╨░╨╜╤Л ╤В╨░╤И╨║╨╡╨╜╤В ╤В╨╛╨┐ ╨╜╨╕╨╢╨╜╨╡╨╡ ╨┐╨╛╨┤╤З╨╡╤А╨║╨╕╨▓╨░╨╜╨╕╨╡ ╤В╨╛╨┐ ╨░ ╤В╨░╨╝ ╨╡╤Б╤В╤М ╨╝╨╜╨╛╨│╨╛ ╨╡╤Й╨╡ ╨┤╤А╤Г╨│╨╕╤Е ╨┤╨╕╨▓╨░╨╜╨╛╨▓ ╨╝╨╛╨╢╨╡╤В╨╡ ╨┐╨╛╤Б╨╝╨╛╤В╤А╨╡╤В╤М ╤Е╨╛╤А╨╛╤И╨╛ ╤П ╨╖╨░╨╣╨┤╤Г ╨┐╨╛╤Б╨╝╨╛╤В╤А╤О ╨┤╨╛ ╨▓╤Б╤В╤А╨╡╤З╨╕[25.50]<|im_end|>
+--- merged ---
+

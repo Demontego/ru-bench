@@ -10,9 +10,23 @@ from transformers import AutoModelForCausalLM, AutoProcessor
 MODEL_ID = "OpenMOSS-Team/MOSS-Transcribe-Diarize"
 
 
+def require_cuda(device: torch.device | None = None) -> torch.device:
+    """Force CUDA for all inference/train runs. Fail loud if GPU torch missing."""
+    if device is not None:
+        if device.type != "cuda":
+            raise RuntimeError(f"CUDA required, got device={device}")
+        return device
+    if not torch.cuda.is_available():
+        raise RuntimeError(
+            "CUDA required but torch.cuda.is_available() is False. "
+            f"torch={torch.__version__} — install CUDA wheel (see pyproject pytorch-cu130 index)."
+        )
+    return resolve_device("cuda")
+
+
 def load_model(adapter_path: str | None = None, device: torch.device | None = None):
-    device = device or resolve_device("auto")
-    dtype = torch.bfloat16 if device.type == "cuda" else torch.float32
+    device = require_cuda(device)
+    dtype = torch.bfloat16
     model = AutoModelForCausalLM.from_pretrained(MODEL_ID, trust_remote_code=True, dtype="auto")
     if adapter_path is not None:
         from peft import PeftModel

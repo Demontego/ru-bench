@@ -22,8 +22,10 @@ def main() -> None:
     if not pending:
         return
 
-    print("Loading model...")
+    print("Loading model on CUDA...")
     model, processor, device, dtype = load_model()
+    if device.type != "cuda":
+        raise SystemExit(f"refusing non-CUDA device={device}")
     print(f"Model loaded on device={device}, dtype={dtype}")
 
     for i, clip in enumerate(pending):

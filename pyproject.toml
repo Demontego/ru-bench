@@ -5,14 +5,44 @@ description = "Benchmark of MOSS-Transcribe-Diarize on Russian audio (Golos, ASR
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "torch>=2.8",
     "moss-transcribe-diarize[torch-runtime]",
     "jiwer>=4.0",
     "soundfile>=0.14",
     "peft>=0.18",
+    "datasets>=3.0",
+    "librosa>=0.10",
 ]
+
+[project.optional-dependencies]
+onnx = [
+    "onnx>=1.22.0",
+    # GPU EP. Do not use [cuda,cudnn] extras — nvidia-*-cu13 stubs are deprecated
+    # (0.0.1 only). CUDA DLLs come from torch cu130 / system PATH + ort.preload_dlls.
+    "onnxruntime-gpu>=1.27.0",
+    "onnxruntime-extensions==0.15.0",
+    "onnxscript>=0.7.1",
+]
+# CPU-optimized ORT (mutually exclusive with onnxruntime-gpu — same import path).
+#   uv remove onnxruntime-gpu; uv sync --extra onnx-cpu
+onnx-cpu = [
+    "onnx>=1.22.0",
+    "onnxruntime>=1.27.0",
+    "onnxruntime-extensions==0.15.0",
+    "onnxscript>=0.7.1",
+]
+
+# CUDA wheels (Windows/Linux). Without this, uv pulls torch+cpu and resolve_device("auto") falls to CPU.
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
 
 [tool.uv.sources]
 moss-transcribe-diarize = { git = "https://github.com/OpenMOSS/MOSS-Transcribe-Diarize.git" }
+torch = [
+  { index = "pytorch-cu130", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+]
 
 [build-system]
 requires = ["hatchling"]

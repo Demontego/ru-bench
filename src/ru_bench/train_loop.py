@@ -26,29 +26,55 @@ def resolve_train_device(name: str) -> torch.device:
 _META_KEYS = frozenset({"labels", "label_weights"})
 
 
+def _is_multi_spk_diar(clip: ClipRef) -> bool:
+    """True when clip has a real multi-turn MOSS target (not flat S01 wrap)."""
+    return bool(clip.target) and clip.target.count("[S") >= 2
+
+
 def make_en_retention_picker(
     clips: list[ClipRef],
     *,
     en_ratio: float = 0.25,
+    en_diar_ratio: float = 0.55,
     seed: int = 42,
 ):
-    """Upsample EN clips so ~``en_ratio`` of draws are English (anti-forgetting)."""
+    """Upsample EN; within EN prefer multi-spk diar over flat ASR.
+
+    ``en_ratio``: P(draw EN). ``en_diar_ratio``: among EN draws, P(diar) when both
+    flat and diar pools are non-empty.
+    """
     ru = [c for c in clips if clip_language(c) == "ru"]
     en = [c for c in clips if clip_language(c) == "en"]
+    en_diar = [c for c in en if _is_multi_spk_diar(c)]
+    en_flat = [c for c in en if not _is_multi_spk_diar(c)]
+
     if not en:
         cycle = itertools.cycle(clips)
         return lambda: next(cycle)
     if not ru:
-        cycle = itertools.cycle(en)
+        pool = en_diar or en
+        cycle = itertools.cycle(pool)
         return lambda: next(cycle)
 
     ru_c = itertools.cycle(ru)
-    en_c = itertools.cycle(en)
+    en_any_c = itertools.cycle(en)
+    en_diar_c = itertools.cycle(en_diar) if en_diar else None
+    en_flat_c = itertools.cycle(en_flat) if en_flat else None
     rng = random.Random(seed)
     ratio = min(max(en_ratio, 0.0), 0.9)
+    diar_ratio = min(max(en_diar_ratio, 0.0), 1.0)
+
+    def _pick_en() -> ClipRef:
+        if en_diar_c is not None and en_flat_c is not None:
+            return next(en_diar_c) if rng.random() < diar_ratio else next(en_flat_c)
+        if en_diar_c is not None:
+            return next(en_diar_c)
+        if en_flat_c is not None:
+            return next(en_flat_c)
+        return next(en_any_c)
 
     def pick() -> ClipRef:
-        return next(en_c) if rng.random() < ratio else next(ru_c)
+        return _pick_en() if rng.random() < ratio else next(ru_c)
 
     return pick
 
@@ -192,12 +218,13 @@ def train(
     batch_accum: int = 8,
     lr: float = 1e-4,
     log_every: int = 10,
-    eval_every: int = 100,
+    eval_every: int = 600,
     eval_max_clips: int = 32,
     metrics_every: int | None = None,
     metrics_max_clips: int = 8,
     metrics_max_new_tokens: int = 512,
     en_sample_ratio: float = 0.25,
+    en_diar_ratio: float = 0.55,
     loss_weights: LossWeightConfig | None = None,
     on_log=None,
 ) -> list[dict]:
@@ -226,7 +253,12 @@ def train(
     t0 = time.perf_counter()
 
     n_en = sum(1 for c in train_clips if clip_language(c) == "en")
-    pick = make_en_retention_picker(train_clips, en_ratio=en_sample_ratio)
+    n_en_diar = sum(1 for c in train_clips if clip_language(c) == "en" and _is_multi_spk_diar(c))
+    pick = make_en_retention_picker(
+        train_clips,
+        en_ratio=en_sample_ratio,
+        en_diar_ratio=en_diar_ratio,
+    )
     pbar = tqdm(
         range(1, steps + 1),
         desc="train",
@@ -258,6 +290,7 @@ def train(
             "loss": f"{window_loss / max(window_n, 1):.3f}",
             "eff": batch_size * batch_accum,
             "en%": f"{100 * en_sample_ratio:.0f}" if n_en else "0",
+            "endi%": f"{100 * en_diar_ratio:.0f}" if n_en_diar else "0",
         }
         if last_dev is not None:
             postfix["dev"] = f"{last_dev:.3f}"
@@ -278,7 +311,9 @@ def train(
                 "eff_batch": batch_size * batch_accum,
                 "elapsed_sec": time.perf_counter() - t0,
                 "en_sample_ratio": en_sample_ratio,
+                "en_diar_ratio": en_diar_ratio,
                 "n_en_train": n_en,
+                "n_en_diar_train": n_en_diar,
             }
             running_loss = 0.0
             window_loss = 0.0

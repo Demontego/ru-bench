@@ -5,6 +5,8 @@ Sources (streaming HF where possible; audio written under data/raw/opensource/):
   - google/fleurs ru_ru / en_us
   - mozilla-foundation/common_voice_17_0 ru
   - openslr/librispeech_asr clean train.100 (optional EN)
+  - ivkond/synthetic-speech-diarization-ru (RU multi-spk + timestamps)
+  - gedeonmate/LibriConvo-segmented (EN multi-spk + timestamps, ≤30s)
 
 Golos farfield/crowd CDN archives stay in train_data.py.
 """
@@ -367,6 +369,134 @@ def load_synth_diar_ru(
     return clips
 
 
+def load_libri_convo_en(
+    limit: int,
+    raw_dir: Path = config.OPENSOURCE_RAW_DIR,
+    *,
+    max_audio_seconds: float = config.TRAIN_MAX_AUDIO_SECONDS,
+    min_speakers: int = 2,
+    min_segments: int = 2,
+    split: str = "train",
+) -> list[ClipRef]:
+    """Materialize LibriConvo-segmented EN dialogues with MOSS multi-segment targets.
+
+    Each row is a ≤30s conversation fragment with parallel start/end/text/speaker lists.
+    """
+    from ru_bench.moss_format import format_moss_segment
+
+    out_dir = raw_dir / "libri_convo_en"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    clips: list[ClipRef] = []
+    written = 0
+    seen = 0
+
+    logger.info(
+        "Loading libri_convo_en (limit=%d, max_s=%.1f, min_spk=%d)",
+        limit,
+        max_audio_seconds,
+        min_speakers,
+    )
+    try:
+        rows = _iter_hf_rows(
+            "gedeonmate/LibriConvo-segmented",
+            split=split,
+            decode_audio=False,
+        )
+    except (DatasetNotFoundError, EmptyDatasetError, OSError, RuntimeError, ValueError) as exc:
+        logger.warning("libri_convo_en unavailable: %s", exc)
+        return []
+
+    try:
+        for row in rows:
+            if written >= limit:
+                break
+            seen += 1
+            starts = list(row.get("start_time") or [])
+            ends = list(row.get("end_time") or [])
+            texts = list(row.get("text") or [])
+            symbols = list(row.get("abstract_symbol") or [])
+            n = min(len(starts), len(ends), len(texts), len(symbols))
+            if n < min_segments:
+                continue
+
+            spk_map: dict[str, int] = {}
+            parts: list[str] = []
+            flat: list[str] = []
+            for i in range(n):
+                start = float(starts[i])
+                end = float(ends[i])
+                if start >= max_audio_seconds:
+                    break
+                end = min(end, max_audio_seconds)
+                text = str(texts[i] or "").strip()
+                if not text or end <= start:
+                    continue
+                sym = str(symbols[i] or "").strip() or "?"
+                if sym not in spk_map:
+                    spk_map[sym] = len(spk_map) + 1
+                sid = spk_map[sym]
+                parts.append(format_moss_segment(start, end, f"S{sid:02d}", text))
+                flat.append(text)
+            if len(spk_map) < min_speakers or len(parts) < min_segments:
+                continue
+            target = "".join(parts)
+            merged_text = " ".join(flat)
+            if not merged_text:
+                continue
+
+            seg_id = row.get("segment_conversation_id") or row.get("conversation_id") or seen
+            clip_id = f"libri_convo_en_{str(seg_id).replace('/', '_')}"
+            wav_path = out_dir / f"{clip_id}.wav"
+
+            if wav_path.exists():
+                try:
+                    info = sf.info(str(wav_path))
+                    duration = float(info.frames) / float(info.samplerate)
+                except (OSError, RuntimeError):
+                    continue
+                clips.append(
+                    ClipRef(
+                        clip_id=clip_id,
+                        domain="libri_convo_en",
+                        audio_path=str(wav_path),
+                        text=merged_text,
+                        duration=duration,
+                        target=target,
+                    )
+                )
+                written += 1
+                continue
+
+            decoded = _read_audio_field(row.get("audio"))
+            if decoded is None:
+                continue
+            array, rate = decoded
+            array = _resample(array, rate)
+            array = _truncate_audio(array, max_audio_seconds)
+            if array.size < SAMPLE_RATE // 2:
+                continue
+            duration = float(array.size) / SAMPLE_RATE
+            sf.write(str(wav_path), array, SAMPLE_RATE)
+            clips.append(
+                ClipRef(
+                    clip_id=clip_id,
+                    domain="libri_convo_en",
+                    audio_path=str(wav_path),
+                    text=merged_text,
+                    duration=duration,
+                    target=target,
+                )
+            )
+            written += 1
+            if written % 20 == 0:
+                logger.info("libri_convo_en: materialized %d / %d", written, limit)
+    except (DatasetNotFoundError, EmptyDatasetError, OSError, RuntimeError, ValueError) as exc:
+        logger.warning("libri_convo_en aborted mid-stream: %s (kept %d)", exc, len(clips))
+
+    logger.info("libri_convo_en: done, %d clips", len(clips))
+    return clips
+
+
 SOURCE_LOADERS: dict[str, Callable[[int], list[ClipRef]]] = {
     "golos10h": load_golos10h,
     "fleurs_ru": load_fleurs_ru,
@@ -374,6 +504,7 @@ SOURCE_LOADERS: dict[str, Callable[[int], list[ClipRef]]] = {
     "cv_ru": load_common_voice_ru,
     "librispeech_clean": load_librispeech_clean,
     "synth_diar_ru": load_synth_diar_ru,
+    "libri_convo_en": load_libri_convo_en,
 }
 
 

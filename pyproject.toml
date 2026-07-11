@@ -19,6 +19,8 @@ onnx = [
     "onnx>=1.22.0",
     # GPU EP. Do not use [cuda,cudnn] extras — nvidia-*-cu13 stubs are deprecated
     # (0.0.1 only). CUDA DLLs come from torch cu130 / system PATH + ort.preload_dlls.
+    # Prefer >=1.27.1 when PyPI wheels land (GitHub v1.27.1 2026-07-11; CPU GQA
+    # quantized KV already in 1.27.0 via #28576/#28578).
     "onnxruntime-gpu>=1.27.0",
     "onnxruntime-extensions==0.15.0",
     "onnxscript>=0.7.1",
@@ -31,6 +33,7 @@ onnx-cpu = [
     "onnxruntime-extensions==0.15.0",
     "onnxscript>=0.7.1",
 ]
+# onnxruntime-genai removed — see docs/EXPERIMENTS.md for archived GenAI/GQA spikes.
 
 # CUDA wheels (Windows/Linux). Without this, uv pulls torch+cpu and resolve_device("auto") falls to CPU.
 [[tool.uv.index]]
@@ -47,6 +50,9 @@ torch = [
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[project.scripts]
+ru-bench = "ru_bench.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ru_bench"]

@@ -106,18 +106,39 @@ def optimize_with_ort_transformers(
     use_gpu: bool = False,
     opt_level: int | None = 0,
     model_type: str = "gpt2",
+    enable_rotary_embeddings: bool = True,
+    use_multi_head_attention: bool = False,
+    attention_op: str | None = None,
 ) -> Path:
     """Offline graph fusions via ``onnxruntime.transformers.optimizer``.
 
     Docs: https://onnxruntime.ai/docs/performance/transformers-optimization.html
 
     ``model_type='gpt2'`` is closest built-in match for Qwen decoder Attention.
+    Try ``qwen3`` / ``phi`` when targeting GroupQueryAttention (MOSS text is Qwen-like).
+
     Default ``opt_level=0``: fusion-only. ``opt_level>=1`` breaks this hybrid
     Whisper+Qwen export (duplicate Constant initializers / invalid ``If`` nodes).
+
+    Set ``enable_rotary_embeddings=False`` for batched beam (fused RotaryEmbedding
+    currently rejects batch>1 on this graph).
+
+    ``attention_op``: ``Attention`` | ``MultiHeadAttention`` | ``GroupQueryAttention``.
     """
     from onnxruntime.transformers import optimizer
+    from onnxruntime.transformers.fusion_options import AttentionOpType, FusionOptions
 
     num_heads, hidden_size = _qwen_optimizer_dims()
+    fusion = FusionOptions(model_type)
+    fusion.enable_rotary_embeddings = bool(enable_rotary_embeddings)
+    fusion.enable_attention = True
+    if use_multi_head_attention or attention_op in {
+        "MultiHeadAttention",
+        "GroupQueryAttention",
+    }:
+        fusion.use_multi_head_attention = True
+    if attention_op:
+        fusion.set_attention_op_type(AttentionOpType[attention_op])
     optimized = optimizer.optimize_model(
         str(input_onnx),
         model_type=model_type,
@@ -127,6 +148,7 @@ def optimize_with_ort_transformers(
         use_gpu=use_gpu,
         only_onnxruntime=False,
         verbose=False,
+        optimization_options=fusion,
     )
     if float16:
         optimized.convert_float_to_float16(keep_io_types=True)

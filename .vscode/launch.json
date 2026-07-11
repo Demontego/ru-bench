@@ -1,98 +1,17 @@
 {
-    // Use IntelliSense to learn about possible attributes.
-    // Hover to view descriptions of existing attributes.
-    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "onnxruntime_infer (base)",
+            "name": "ru-bench onnx infer (CUDA)",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/examples/onnxruntime_infer.py",
+            "module": "ru_bench.cli",
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal",
             "python": "${workspaceFolder}/.venv/Scripts/python.exe",
             "args": [
-                "--onnx",
-                "exports/moss_base_step.opt.onnx",
-                "--audio",
-                "Звонок.wav",
-                "--max-new-tokens",
-                "512",
-                "--providers",
-                "CUDAExecutionProvider",
-                "CPUExecutionProvider"
-            ]
-        },
-        {
-            "name": "onnxruntime_infer (lora_ru_e2)",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/examples/onnxruntime_infer.py",
-            "cwd": "${workspaceFolder}",
-            "console": "integratedTerminal",
-            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
-            "args": [
-                "--onnx",
-                "exports/moss_ru_e2_step.opt.onnx",
-                "--audio",
-                "Звонок.wav",
-                "--max-new-tokens",
-                "256",
-                "--providers",
-                "CUDAExecutionProvider",
-                "CPUExecutionProvider"
-            ]
-        },
-        {
-            "name": "onnxruntime_infer (lora_ru_fmt3)",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/examples/onnxruntime_infer.py",
-            "cwd": "${workspaceFolder}",
-            "console": "integratedTerminal",
-            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
-            "args": [
-                "--onnx",
-                "exports/moss_ru_fmt3_step.opt.onnx",
-                "--audio",
-                "Звонок.wav",
-                "--max-new-tokens",
-                "512",
-                "--providers",
-                "CUDAExecutionProvider",
-                "CPUExecutionProvider"
-            ]
-        },
-        {
-            "name": "onnxruntime_infer (lora_ru_fmt3 q4)",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/examples/onnxruntime_infer.py",
-            "cwd": "${workspaceFolder}",
-            "console": "integratedTerminal",
-            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
-            "args": [
-                "--onnx",
-                "exports/moss_ru_fmt3_step.opt.q4.onnx",
-                "--audio",
-                "Звонок.wav",
-                "--max-new-tokens",
-                "512",
-                "--providers",
-                "CUDAExecutionProvider",
-                "CPUExecutionProvider"
-            ]
-        },
-        {
-            "name": "onnxruntime_infer_kv (fmt3 CUDA)",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/examples/onnxruntime_infer_kv.py",
-            "cwd": "${workspaceFolder}",
-            "console": "integratedTerminal",
-            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
-            "args": [
+                "onnx",
+                "infer",
                 "--model-dir",
                 "exports/moss_ru_fmt3_kv",
                 "--audio",
@@ -105,68 +24,33 @@
             ]
         },
         {
-            "name": "onnxruntime_infer_kv (fmt3 CPU)",
+            "name": "ru-bench onnx infer (cpu-fast chunk10)",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/examples/onnxruntime_infer_kv.py",
+            "module": "ru_bench.cli",
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal",
             "python": "${workspaceFolder}/.venv/Scripts/python.exe",
             "args": [
+                "onnx",
+                "infer",
                 "--model-dir",
                 "exports/moss_ru_fmt3_kv",
                 "--audio",
                 "Звонок.wav",
-                "--max-new-tokens",
-                "512",
-                "--providers",
-                "CPUExecutionProvider"
-            ]
-        },
-        {
-            "name": "onnxruntime_infer_kv (fmt3 cpu-fast)",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/examples/onnxruntime_infer_kv.py",
-            "cwd": "${workspaceFolder}",
-            "console": "integratedTerminal",
-            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
-            "args": [
-                "--model-dir",
-                "exports/moss_ru_fmt3_kv",
-                "--audio",
-                "Звонок.wav",
-                "--max-new-tokens",
-                "512",
                 "--quant",
                 "cpu-fast",
                 "--providers",
                 "CPUExecutionProvider",
-                "--tune-threads",
+                "--intra-op-threads",
+                "8",
                 "--chunk-sec",
-                "30"
-            ]
-        },
-        {
-            "name": "onnxruntime_infer_kv (fmt3 q8 CUDA)",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/examples/onnxruntime_infer_kv.py",
-            "cwd": "${workspaceFolder}",
-            "console": "integratedTerminal",
-            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
-            "args": [
-                "--model-dir",
-                "exports/moss_ru_fmt3_kv",
-                "--audio",
-                "Звонок.wav",
-                "--max-new-tokens",
-                "512",
-                "--quant",
-                "q8",
-                "--providers",
-                "CUDAExecutionProvider",
-                "CPUExecutionProvider"
+                "10",
+                "--overlap-sec",
+                "2",
+                "--beam-size",
+                "2",
+                "--no-trim-mel"
             ]
         }
     ]

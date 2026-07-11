@@ -43,32 +43,35 @@ DEV_SAMPLE_SIZE = 0
 EVAL_RATIO = 0.10  # 90% train / 10% eval
 
 # Domain -> language. Train is RU-heavy; eval prefers ~50/50 RU/EN for fair metrics.
-EN_DOMAINS = frozenset({"fleurs_en", "librispeech_clean"})
+EN_DOMAINS = frozenset({"fleurs_en", "librispeech_clean", "libri_convo_en"})
 RU_DOMAINS = frozenset(
     {"farfield", "crowd", "golos10h", "fleurs_ru", "cv_ru", "synth_diar_ru"}
 )
 
-# Default mix: Golos + HF RU + EN retention + synthetic RU diarization.
+# Default mix: Golos + HF RU + EN flat retention + RU/EN multi-spk diar.
 # Avoid empty HF repos (SberDevices/Golos); use bond005/sberdevices_golos_10h_crowd.
 DEFAULT_TRAIN_SOURCES = [
     "golos_farfield",
     "golos10h",
     "fleurs_ru",
     "fleurs_en",
-    "librispeech_clean",  # EN retention (clean read speech)
-    "synth_diar_ru",
+    "librispeech_clean",  # EN flat ASR retention
+    "synth_diar_ru",  # RU multi-spk + timestamps
+    "libri_convo_en",  # EN multi-spk + timestamps (format parity with RU diar)
 ]
 
 # Per-source caps before 90/10 split.
 # EN share kept high enough that forgetting is hard (not token-tiny).
+# Flat EN trimmed slightly so diar EN can take real share without exploding pool.
 SOURCE_LIMITS = {
     "golos_farfield": 4000,
     "golos10h": 2500,
     "fleurs_ru": 1500,
     "cv_ru": 2500,
-    "fleurs_en": 2500,
-    "librispeech_clean": 2000,
+    "fleurs_en": 2000,
+    "librispeech_clean": 1500,
     "synth_diar_ru": 2000,
+    "libri_convo_en": 1500,
 }
 
 TRAIN_MANIFEST_PATH = DATA_DIR / "manifests" / "train_sample.json"
@@ -95,10 +98,12 @@ LOSS_W_SPEAKER = 4.0
 LOSS_W_TIMESTAMP = 2.0
 LOSS_W_TEXT = 1.0
 LOSS_W_FLAT_WRAP = 0.4  # Golos wrap [0.00][S01]…[dur]
-# Whole-clip multiplier for EN-domain examples (fleurs_en / librispeech).
+# Whole-clip multiplier for EN-domain examples (flat + diar).
 LOSS_W_EN_CLIP = 1.5
 # Fraction of microbatch slots drawn from EN (upsample vs natural ~10%).
-TRAIN_EN_SAMPLE_RATIO = 0.25
+TRAIN_EN_SAMPLE_RATIO = 0.30
+# Within EN draws: fraction from multi-spk diar (libri_convo_en) vs flat ASR.
+TRAIN_EN_DIAR_RATIO = 0.55
 
 CHECKPOINT_DIR = Path("checkpoints") / "lora_ru"
 

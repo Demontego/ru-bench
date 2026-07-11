@@ -14,3 +14,15 @@ wheels/
 /results/
 /checkpoints/
 /exports/
+/logs/
+
+# Local smoke audio (not source)
+*.wav
+_tmp_*
+
+# Editor / agent scratch
+.cursor/
+
+# Local ORT source / native packages
+/deps/
+*.whl

@@ -398,13 +398,25 @@ def export_onnx_kv(
     }
 
     if optimize_lm:
+        from ru_bench.onnx_export import quantize_dynamic_int8
+
         for src_key, stem in (("lm_prefill", "lm_prefill"), ("lm_decode", "lm_decode")):
             src = artifacts[src_key]
             opt_path = src.with_name(f"{stem}.opt.onnx")
+            # Rotary fusion breaks batched beam (batch>1); keep LayerNorm fusions.
             optimize_with_ort_transformers(
-                src, opt_path, float16=float16, use_gpu=use_gpu, model_type="gpt2"
+                src,
+                opt_path,
+                float16=float16,
+                use_gpu=use_gpu,
+                model_type="gpt2",
+                enable_rotary_embeddings=False,
             )
             artifacts[f"{src_key}_opt"] = opt_path
+            if src_key == "lm_decode":
+                q_path = src.with_name(f"{stem}.opt.dynint8.onnx")
+                quantize_dynamic_int8(opt_path, q_path)
+                artifacts["lm_decode_opt_dynint8"] = q_path
 
     if export_tokenizer:
         tok_meta = export_extensions_tokenizer(

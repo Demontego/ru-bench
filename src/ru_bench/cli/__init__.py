@@ -10,7 +10,34 @@
 
 from __future__ import annotations
 
+import importlib
 import sys
+
+# Static help — no heavy imports (onnx/torch load only on dispatch).
+_GROUP_ACTIONS: dict[str, list[str]] = {
+    "data": ["manifests", "inject-en", "diar-sample", "error-mine"],
+    "train": ["finetune", "vram-probe"],
+    "eval": ["golos", "retention", "diar", "onnx-trim"],
+    "onnx": ["export-kv", "patch-audio", "install-ort", "infer"],
+}
+
+# module path → main callable
+_ACTION_MODULES: dict[tuple[str, str], str] = {
+    ("data", "manifests"): "ru_bench.cli.data_manifests",
+    ("data", "inject-en"): "ru_bench.cli.data_inject_en",
+    ("data", "diar-sample"): "ru_bench.cli.data_diar_sample",
+    ("data", "error-mine"): "ru_bench.cli.data_error_mine",
+    ("train", "finetune"): "ru_bench.cli.train_finetune",
+    ("train", "vram-probe"): "ru_bench.cli.train_vram",
+    ("eval", "golos"): "ru_bench.cli.eval_golos",
+    ("eval", "retention"): "ru_bench.cli.eval_retention",
+    ("eval", "diar"): "ru_bench.cli.eval_diar",
+    ("eval", "onnx-trim"): "ru_bench.cli.eval_onnx_trim",
+    ("onnx", "export-kv"): "ru_bench.cli.onnx_export",
+    ("onnx", "patch-audio"): "ru_bench.cli.onnx_patch_audio",
+    ("onnx", "install-ort"): "ru_bench.cli.onnx_install_ort",
+    ("onnx", "infer"): "ru_bench.cli.infer_kv",
+}
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -31,6 +58,9 @@ def main(argv: list[str] | None = None) -> None:
         dispatch(rest)
         return
 
+    if group not in _GROUP_ACTIONS:
+        raise SystemExit(f"unknown group: {group}\n\n{_print_groups()}")
+
     if len(rest) < 1 or rest[0] in {"-h", "--help"}:
         _print_group_help(group)
         return
@@ -40,64 +70,28 @@ def main(argv: list[str] | None = None) -> None:
 
 
 def _run_action(group: str, action: str, action_argv: list[str]) -> None:
+    mod_path = _ACTION_MODULES.get((group, action))
+    if mod_path is None:
+        raise SystemExit(f"unknown command: {group} {action}\n{_group_actions(group)}")
+
+    mod = importlib.import_module(mod_path)
+    main_fn = getattr(mod, "main")
+
     old = sys.argv
     sys.argv = [old[0], *action_argv]
     try:
-        fn = _ACTIONS.get((group, action))
-        if fn is None:
-            raise SystemExit(f"unknown command: {group} {action}\n{_group_actions(group)}")
-        fn()
+        main_fn()
     finally:
         sys.argv = old
 
 
-def _lazy_actions() -> dict[tuple[str, str], object]:
-    from ru_bench.cli.data_diar_sample import main as data_diar
-    from ru_bench.cli.data_error_mine import main as data_mine
-    from ru_bench.cli.data_inject_en import main as data_inject
-    from ru_bench.cli.data_manifests import main as data_manifests
-    from ru_bench.cli.eval_diar import main as eval_diar
-    from ru_bench.cli.eval_golos import main as eval_golos
-    from ru_bench.cli.eval_onnx_trim import main as eval_trim
-    from ru_bench.cli.eval_retention import main as eval_retention
-    from ru_bench.cli.infer_kv import main as onnx_infer
-    from ru_bench.cli.onnx_export import main as onnx_export
-    from ru_bench.cli.onnx_install_ort import main as onnx_install
-    from ru_bench.cli.onnx_patch_audio import main as onnx_patch
-    from ru_bench.cli.train_finetune import main as train_finetune
-    from ru_bench.cli.train_vram import main as train_vram
-
-    return {
-        ("data", "manifests"): data_manifests,
-        ("data", "inject-en"): data_inject,
-        ("data", "diar-sample"): data_diar,
-        ("data", "error-mine"): data_mine,
-        ("train", "finetune"): train_finetune,
-        ("train", "vram-probe"): train_vram,
-        ("eval", "golos"): eval_golos,
-        ("eval", "retention"): eval_retention,
-        ("eval", "diar"): eval_diar,
-        ("eval", "onnx-trim"): eval_trim,
-        ("onnx", "export-kv"): onnx_export,
-        ("onnx", "patch-audio"): onnx_patch,
-        ("onnx", "install-ort"): onnx_install,
-        ("onnx", "infer"): onnx_infer,
-    }
-
-
-_ACTIONS: dict[tuple[str, str], object] = {}
-
-
-def _ensure_actions() -> None:
-    global _ACTIONS
-    if not _ACTIONS:
-        _ACTIONS = _lazy_actions()
-
-
 def _group_actions(group: str) -> str:
-    _ensure_actions()
-    lines = [f"  {a}" for (g, a) in sorted(_ACTIONS) if g == group]
-    return "\n".join(lines) or "  (none)"
+    actions = _GROUP_ACTIONS.get(group, [])
+    return "\n".join(f"  {a}" for a in actions) or "  (none)"
+
+
+def _print_groups() -> str:
+    return "Groups: " + ", ".join(sorted(_GROUP_ACTIONS))
 
 
 def _print_group_help(group: str) -> None:
@@ -118,7 +112,7 @@ Groups:
 
 Examples:
   uv run ru-bench bench download --asr-n 100
-  uv run ru-bench bench infer
+  uv sync --extra onnx-cpu
   uv run ru-bench onnx infer --model-dir exports/moss_ru_fmt3_kv --audio clip.wav
 
 See docs/COMMANDS.md"""

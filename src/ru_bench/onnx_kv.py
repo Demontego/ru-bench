@@ -236,6 +236,9 @@ def export_onnx_kv(
     float16: bool = False,
     use_gpu: bool = False,
     export_tokenizer: bool = True,
+    attention_op: str | None = None,
+    model_type: str = "gpt2",
+    gqa_decode_only: bool = True,
 ) -> dict[str, Path]:
     """Export audio / embed / lm KV graphs into ``output_dir``."""
     from moss_transcribe_diarize.inference_utils import (
@@ -383,6 +386,7 @@ def export_onnx_kv(
         "hidden_size": HIDDEN,
         "graphs": ["audio.onnx", "embed.onnx", "lm_prefill.onnx", "lm_decode.onnx"],
         "lm_decode_inputs": "input_ids",  # embed fused inside decode
+        "gqa": attention_op == "GroupQueryAttention",
         "checkpoint_dir": str(checkpoint_dir) if checkpoint_dir else None,
     }
     meta_path = output_dir / "kv_meta.json"
@@ -403,20 +407,23 @@ def export_onnx_kv(
         for src_key, stem in (("lm_prefill", "lm_prefill"), ("lm_decode", "lm_decode")):
             src = artifacts[src_key]
             opt_path = src.with_name(f"{stem}.opt.onnx")
+            use_gqa = attention_op == "GroupQueryAttention" and (
+                src_key == "lm_decode" or not gqa_decode_only
+            )
             # Rotary fusion breaks batched beam (batch>1); keep LayerNorm fusions.
             optimize_with_ort_transformers(
                 src,
                 opt_path,
                 float16=float16,
                 use_gpu=use_gpu,
-                model_type="gpt2",
+                model_type=model_type if use_gqa else "gpt2",
                 enable_rotary_embeddings=False,
+                attention_op=attention_op if use_gqa else None,
             )
             artifacts[f"{src_key}_opt"] = opt_path
-            if src_key == "lm_decode":
-                q_path = src.with_name(f"{stem}.opt.dynint8.onnx")
-                quantize_dynamic_int8(opt_path, q_path)
-                artifacts["lm_decode_opt_dynint8"] = q_path
+            q_path = src.with_name(f"{stem}.opt.dynint8.onnx")
+            quantize_dynamic_int8(opt_path, q_path)
+            artifacts[f"{src_key}_opt_dynint8"] = q_path
 
     if export_tokenizer:
         tok_meta = export_extensions_tokenizer(

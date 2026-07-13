@@ -36,7 +36,28 @@ def main() -> None:
         action=argparse.BooleanOptionalAction,
         default=True,
     )
+    p.add_argument(
+        "--gqa",
+        action="store_true",
+        help="Fuse decode LM attention to GroupQueryAttention (qwen3 optimizer)",
+    )
+    p.add_argument(
+        "--attention-op",
+        default=None,
+        choices=("Attention", "MultiHeadAttention", "GroupQueryAttention"),
+    )
+    p.add_argument(
+        "--model-type",
+        default="gpt2",
+        help="ORT transformers optimizer model_type (use qwen3 with --gqa)",
+    )
     args = p.parse_args()
+
+    attention_op = args.attention_op
+    model_type = args.model_type
+    if args.gqa:
+        attention_op = attention_op or "GroupQueryAttention"
+        model_type = "qwen3" if model_type == "gpt2" else model_type
 
     sample = args.sample_audio
     if sample is None:
@@ -62,6 +83,8 @@ def main() -> None:
         float16=args.float16,
         use_gpu=args.use_gpu,
         export_tokenizer=args.tokenizer_onnx,
+        attention_op=attention_op,
+        model_type=model_type,
     )
     for key, path in arts.items():
         if path.is_dir():
